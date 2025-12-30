@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 
 const CREDENTIALS = {
   dhanush: 'dhanush1',
-  vijay: 'vijay1'
+  vijay: 'vijay1',
+  sandeep: 'sandeep1',
+  naveen: 'naveen1',
+  praneeth: 'praneeth1',
 };
 
 const Login = ({ onLogin }) => {
@@ -37,7 +40,7 @@ const Login = ({ onLogin }) => {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           className="w-full mb-3 px-3 py-2 border border-gray-300 rounded"
-          placeholder="dhanush or vijay"
+          placeholder="name"
           autoFocus
         />
 
@@ -67,7 +70,7 @@ const Login = ({ onLogin }) => {
           </button>
         </div>
 
-        <p className="mt-4 text-xs text-gray-500">Use static creds: dhanush/dhanush1 or vijay/vijay1</p>
+        {/* <p className="mt-4 text-xs text-gray-500">Use static creds: dhanush/dhanush1 or vijay/vijay1</p> */}
       </form>
     </div>
   );
