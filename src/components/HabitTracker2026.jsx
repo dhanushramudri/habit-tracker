@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Plus, Trash2, Settings, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const HabitTracker2026 = () => {
+const HabitTracker2026 = ({ user, onLogout }) => {
   const [habits, setHabits] = useState([]);
   const [newHabitName, setNewHabitName] = useState('');
   const [newHabitCategory, setNewHabitCategory] = useState('Uncategorized');
@@ -9,21 +9,71 @@ const HabitTracker2026 = () => {
   const [viewMode, setViewMode] = useState('week');
   const [currentWeek, setCurrentWeek] = useState(0);
   const [currentMonth, setCurrentMonth] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
+  
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [dailyNotes, setDailyNotes] = useState({});
   const [currentNote, setCurrentNote] = useState('');
-  const [mongoConfig, setMongoConfig] = useState({
-    apiKey: '',
-    database: 'habitTracker',
-    collection: 'habits2026'
-  });
+  // Frontend will use backend API routes at /api (no client-side DB creds)
+  const backendBase = 'http://localhost:4000/api';
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [categories, setCategories] = useState(['Health', 'Study', 'Work', 'Personal', 'Fitness', 'Uncategorized']);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [longestStreak, setLongestStreak] = useState(0);
+
+  // Load user-specific data from backend (no localStorage fallback)
+  useEffect(() => {
+    if (!user) {
+      setHabits([]);
+      setDailyNotes({});
+      return;
+    }
+
+    setLoading(true);
+
+    // quick health check
+    fetch(`${backendBase}/health`).then(r => r.json()).then(j => {
+      setIsConnected(!!j.dbConnected);
+    }).catch(() => setIsConnected(false));
+
+    // load habits
+    fetch(`${backendBase}/habits?username=${encodeURIComponent(user)}`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch habits');
+        return r.json();
+      })
+      .then(result => {
+        setHabits(result && result.documents ? result.documents : []);
+      })
+      .catch(err => {
+        console.warn('Failed to load habits from backend', err);
+        setHabits([]);
+        setIsConnected(false);
+      })
+      .finally(() => setLoading(false));
+
+    // load notes
+    fetch(`${backendBase}/notes?username=${encodeURIComponent(user)}`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch notes');
+        return r.json();
+      })
+      .then(result => {
+        setDailyNotes(result && result.document ? result.document.notes || {} : {});
+      })
+      .catch(err => {
+        console.warn('Failed to load notes from backend', err);
+        setDailyNotes({});
+        setIsConnected(false);
+      });
+  }, [user]);
+
+  useEffect(() => {
+    // NOTE: notes are saved explicitly via Save button only. Remove automatic persistence to avoid
+    // unintended local changes. This effect intentionally does nothing.
+  }, [dailyNotes, user]);
 
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -83,66 +133,58 @@ const HabitTracker2026 = () => {
     return `${year}-${month}-${day}`;
   };
 
-  const apiCall = async (endpoint, data) => {
-    if (!mongoConfig.apiKey) return null;
-    
+  // Remote backend helpers (use backend at /api)
+  const createHabitRemote = async (habit) => {
+    const res = await fetch(`${backendBase}/habits`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(habit)
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => 'create failed');
+      throw new Error(txt || 'Failed to create habit');
+    }
+    const json = await res.json();
+    return json.insertedId;
+  };
+
+  const updateHabitRemote = async (habitId, updates) => {
+    const res = await fetch(`${backendBase}/habits/${encodeURIComponent(habitId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates)
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => 'update failed');
+      throw new Error(txt || 'Failed to update habit');
+    }
+    return await res.json();
+  };
+
+  const deleteHabitRemote = async (habitId) => {
+    const res = await fetch(`${backendBase}/habits/${encodeURIComponent(habitId)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => 'delete failed');
+      throw new Error(txt || 'Failed to delete habit');
+    }
+    return await res.json();
+  };
+
+  const loadNotesRemote = async () => {
     try {
-      const response = await fetch(`https://data.mongodb-api.com/app/data-YOUR_APP_ID/endpoint/data/v1/action/${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': mongoConfig.apiKey
-        },
-        body: JSON.stringify({
-          dataSource: 'Cluster0',
-          database: mongoConfig.database,
-          collection: mongoConfig.collection,
-          ...data
-        })
-      });
-      return await response.json();
-    } catch (error) {
-      console.error('MongoDB API Error:', error);
-      return null;
+      const res = await fetch(`${backendBase}/notes?username=${encodeURIComponent(user)}`);
+      const json = await res.json();
+      if (json && json.document) setDailyNotes(json.document.notes || {});
+    } catch (e) {
+      console.warn('loadNotesRemote failed', e);
     }
   };
 
-  const loadHabitsFromMongo = async () => {
-    if (!mongoConfig.apiKey) return;
-    
-    setLoading(true);
-    const result = await apiCall('find', {
-      filter: { year: 2026 }
+  const saveNotesRemote = async (notes) => {
+    const res = await fetch(`${backendBase}/notes`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, notes })
     });
-    
-    if (result && result.documents) {
-      setHabits(result.documents);
-      setIsConnected(true);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => 'save notes failed');
+      throw new Error(txt || 'Failed to save notes');
     }
-    setLoading(false);
-  };
-
-  const saveHabitToMongo = async (habit) => {
-    if (!mongoConfig.apiKey) return;
-    const result = await apiCall('insertOne', { document: habit });
-    return result;
-  };
-
-  const updateHabitInMongo = async (habitId, updates) => {
-    if (!mongoConfig.apiKey) return;
-    const result = await apiCall('updateOne', {
-      filter: { _id: { $oid: habitId } },
-      update: { $set: updates }
-    });
-    return result;
-  };
-
-  const deleteHabitFromMongo = async (habitId) => {
-    if (!mongoConfig.apiKey) return;
-    const result = await apiCall('deleteOne', {
-      filter: { _id: { $oid: habitId } }
-    });
-    return result;
+    return await res.json();
   };
 
   const addHabit = async () => {
@@ -157,16 +199,17 @@ const HabitTracker2026 = () => {
       createdAt: new Date().toISOString()
     };
 
-    if (mongoConfig.apiKey) {
-      const result = await saveHabitToMongo(newHabit);
-      if (result && result.insertedId) {
-        newHabit._id = result.insertedId;
-      }
-    } else {
-      newHabit._id = Date.now().toString();
+    // attach username for remote storage
+    if (user) newHabit.username = user;
+    try {
+      const id = await createHabitRemote(newHabit);
+      newHabit._id = id;
+      setHabits([...habits, newHabit]);
+    } catch (e) {
+      console.error('Failed to create habit on server', e);
+      alert('Failed to create habit on server. Please try again.');
+      return;
     }
-    
-    setHabits([...habits, newHabit]);
     setNewHabitName('');
     setNewHabitCategory('Uncategorized');
     setShowAddHabit(false);
@@ -174,32 +217,34 @@ const HabitTracker2026 = () => {
 
   const toggleDay = async (habitId, date) => {
     const dateStr = formatDate(date);
-    const updatedHabits = habits.map(habit => {
-      if (habit._id === habitId) {
-        const completedDays = { ...habit.completedDays };
-        if (completedDays[dateStr]) {
-          delete completedDays[dateStr];
-        } else {
-          completedDays[dateStr] = true;
-        }
-        
-        if (mongoConfig.apiKey) {
-          updateHabitInMongo(habitId, { completedDays });
-        }
-        
-        return { ...habit, completedDays };
-      }
-      return habit;
-    });
-    
-    setHabits(updatedHabits);
+    // find habit and compute new completedDays
+    const habit = habits.find(h => h._id === habitId);
+    if (!habit) return;
+    const completedDays = { ...(habit.completedDays || {}) };
+    if (completedDays[dateStr]) delete completedDays[dateStr]; else completedDays[dateStr] = true;
+
+    try {
+      await updateHabitRemote(habitId, { completedDays });
+      // apply update locally only after server success
+      setHabits(prev => prev.map(h => h._id === habitId ? { ...h, completedDays } : h));
+    } catch (e) {
+      console.error('Failed to update habit on server', e);
+      alert('Failed to update habit on server. Please try again.');
+    }
   };
 
   const deleteHabit = async (habitId) => {
-    if (mongoConfig.apiKey) {
-      await deleteHabitFromMongo(habitId);
+    try {
+      const res = await deleteHabitRemote(habitId);
+      if (res && res.deletedCount) {
+        setHabits(habits.filter(h => h._id !== habitId));
+      } else {
+        alert('Failed to delete habit on server.');
+      }
+    } catch (e) {
+      console.error('Failed to delete habit', e);
+      alert('Failed to delete habit on server.');
     }
-    setHabits(habits.filter(h => h._id !== habitId));
   };
 
   const calculateProgress = (habit, dates) => {
@@ -270,6 +315,13 @@ const HabitTracker2026 = () => {
 
     setCurrentStreak(current);
     setLongestStreak(Math.max(longest, current));
+  };
+
+  // Format streak number for display (cap large numbers)
+  const formatStreak = (n) => {
+    if (typeof n !== 'number') return '0';
+    if (n > 99) return '99+';
+    return String(n);
   };
 
   const getIntensityColor = (percentage) => {
@@ -362,13 +414,17 @@ const HabitTracker2026 = () => {
   const saveNote = () => {
     if (selectedDate) {
       const dateStr = formatDate(selectedDate);
-      setDailyNotes({
-        ...dailyNotes,
-        [dateStr]: currentNote
+      const newNotes = { ...dailyNotes, [dateStr]: currentNote };
+      // save to server first
+      saveNotesRemote(newNotes).then(() => {
+        setDailyNotes(newNotes);
+        setShowNoteModal(false);
+        setSelectedDate(null);
+        setCurrentNote('');
+      }).catch(e => {
+        console.error('Failed to save notes remotely', e);
+        alert('Failed to save notes on server.');
       });
-      setShowNoteModal(false);
-      setSelectedDate(null);
-      setCurrentNote('');
     }
   };
 
@@ -408,154 +464,154 @@ function getMonthSpans(weeks, year) {
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+        {/* Minimal top navbar */}
+        <nav className="bg-white rounded-xl shadow-sm px-4 py-2 mb-6">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Calendar className="w-8 h-8 text-green-600" />
-              <div>
-                <h1 className="text-3xl font-bold text-gray-800">Habit Tracker 2026</h1>
-                <p className="text-sm text-gray-500">
-                  {currentStreak > 0 ? `🔥 ${currentStreak} day streak!` : 'Track multiple habits daily'}
-                  {longestStreak > 0 && ` • Best: ${longestStreak} days`}
-                </p>
-              </div>
+              {/* compact 2026 logo (split colors) */}
+              <svg width="72" height="28" viewBox="0 0 160 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                <defs>
+                  <linearGradient id="g20_nav" x1="0" x2="1">
+                    <stop offset="0%" stopColor="#34d399" />
+                    <stop offset="100%" stopColor="#10b981" />
+                  </linearGradient>
+                  <linearGradient id="g26_nav" x1="0" x2="1">
+                    <stop offset="0%" stopColor="#16a34a" />
+                    <stop offset="100%" stopColor="#059669" />
+                  </linearGradient>
+                </defs>
+                <text x="0" y="20" fontFamily="Inter, system-ui, -apple-system, sans-serif" fontWeight="700" fontSize="20">
+                  <tspan fill="url(#g20_nav)">20</tspan>
+                  <tspan fill="url(#g26_nav)">26</tspan>
+                </text>
+              </svg>
             </div>
-            
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <Settings className="w-5 h-5 text-gray-600" />
-            </button>
-          </div>
 
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setViewMode('week')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                viewMode === 'week'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Week
-            </button>
-            <button
-              onClick={() => setViewMode('month')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                viewMode === 'month'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Month
-            </button>
-            <button
-              onClick={() => setViewMode('year')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                viewMode === 'year'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Year
-            </button>
-          </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 mr-1">
+                {/* streak badge (compact) */}
+                <div className="relative w-9 h-9 flex items-center justify-center" title={`${currentStreak} day streak`} aria-label={`${currentStreak} day streak`}> 
+                  <svg className="w-9 h-9" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden>
+                    <defs>
+                      <linearGradient id="streakGrad_nav" x1="0" x2="1" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#ffd6d6" />
+                        <stop offset="50%" stopColor="#ff9a9a" />
+                        <stop offset="100%" stopColor="#ff4b4b" />
+                      </linearGradient>
+                    </defs>
+                    <circle cx="32" cy="34" r="18" fill="#fff" stroke="#f3f4f6" strokeWidth="1" />
+                    <g transform="translate(0,-6)">
+                      <path d="M32 6c5 6 6 11 6 15 0 7-5 10-6 15-1-5-6-8-6-15 0-4 1-9 6-15z" fill="url(#streakGrad_nav)" />
+                    </g>
+                    <text x="32" y="44" textAnchor="middle" fontSize="12" fontWeight="700" fill="#dc2626" style={{ fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>{formatStreak(currentStreak)}</text>
+                  </svg>
+                </div>
+              </div>
 
-          <div className="flex items-center justify-between mb-4">
-            <button
-              onClick={navigatePrev}
-              disabled={!canNavigatePrev()}
-              className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <h2 className="text-xl font-semibold text-gray-700">{getViewTitle()}</h2>
-            <button
-              onClick={navigateNext}
-              disabled={!canNavigateNext()}
-              className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronRight className="w-6 h-6" />
-            </button>
-          </div>
-
-          {showSettings && (
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <h3 className="font-semibold text-gray-700 mb-3">MongoDB Configuration</h3>
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="MongoDB Data API Key"
-                  value={mongoConfig.apiKey}
-                  onChange={(e) => setMongoConfig({...mongoConfig, apiKey: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                />
+              <div className="relative">
                 <button
-                  onClick={loadHabitsFromMongo}
-                  className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                  onClick={() => setShowUserMenu(prev => !prev)}
+                  className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center font-medium text-gray-800"
+                  title={user || 'Account'}
                 >
-                  Connect & Load
+                  {user ? user.charAt(0).toUpperCase() : 'U'}
                 </button>
-              </div>
-              {isConnected && <p className="text-green-600 text-sm mt-2">✓ Connected</p>}
-            </div>
-          )}
 
-          {showAddHabit ? (
-            <div className="space-y-2">
-              <select
-                value={newHabitCategory}
-                onChange={(e) => setNewHabitCategory(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border rounded shadow-lg z-50">
+                    <button onClick={() => { setViewMode('month'); setShowUserMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Monthly</button>
+                    <button onClick={() => { setViewMode('year'); setShowUserMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Yearly</button>
+                    <button onClick={() => { setViewMode('dashboard'); setShowUserMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Dashboard</button>
+                    <button onClick={() => { setViewMode('account'); setShowUserMenu(false); }} className="w-full text-left px-4 py-2 hover:bg-gray-50">Account</button>
+                    <button onClick={() => { setShowUserMenu(false); onLogout && onLogout(); }} className="w-full text-left px-4 py-2 text-red-600 hover:bg-gray-50">Logout</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        {/* Toolbar with view title and Add button */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-700">{viewMode === 'dashboard' ? 'Dashboard' : getViewTitle()}</h2>
+          </div>
+
+          <div>
+            {showAddHabit ? (
+              <div className="space-y-2 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={newHabitCategory}
+                    onChange={(e) => setNewHabitCategory(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                  >
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={newHabitName}
+                    onChange={(e) => setNewHabitName(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && addHabit()}
+                    placeholder="Habit name..."
+                    className="flex-1 px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={addHabit} className="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm">Add</button>
+                  <button onClick={() => { setShowAddHabit(false); setNewHabitName(''); setNewHabitCategory('Uncategorized'); }} className="px-3 py-1 rounded-lg bg-gray-100 text-sm">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAddHabit(true)}
+                className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center"
+                title="Add habit"
+                aria-label="Add habit"
               >
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-                <input
-                type="text"
-                value={newHabitName}
-                onChange={(e) => setNewHabitName(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addHabit()}
-                placeholder="Habit name..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={addHabit}
-                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAddHabit(false);
-                    setNewHabitName('');
-                    setNewHabitCategory('Uncategorized');
-                  }}
-                  className="flex-1 bg-gray-200 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowAddHabit(true)}
-              className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-            >
-              <Plus className="w-4 h-4" />
-              Add New Habit
-            </button>
-          )}
+                <Plus className="w-4 h-4 text-white" />
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
             <p className="mt-4 text-gray-600">Loading...</p>
+          </div>
+        ) : viewMode === 'dashboard' ? (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">Overview</h3>
+              <p className="text-sm text-gray-500">Quick stats for {user}</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 bg-green-50 rounded">
+                <div className="text-xs text-gray-600">Total habits</div>
+                <div className="text-2xl font-bold text-gray-800">{habits.length}</div>
+              </div>
+              <div className="p-4 bg-green-50 rounded">
+                <div className="text-xs text-gray-600">Current streak</div>
+                <div className="text-2xl font-bold text-gray-800">{currentStreak}</div>
+              </div>
+              <div className="p-4 bg-green-50 rounded">
+                <div className="text-xs text-gray-600">Longest streak</div>
+                <div className="text-2xl font-bold text-gray-800">{longestStreak}</div>
+              </div>
+            </div>
+          </div>
+        ) : viewMode === 'account' ? (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Account</h3>
+            <p className="text-sm text-gray-600 mb-4">Signed in as <span className="font-medium text-gray-800">{user}</span></p>
+            <div className="flex gap-2">
+              <button onClick={() => setViewMode('dashboard')} className="px-4 py-2 bg-gray-100 rounded">Back to Dashboard</button>
+              <button onClick={() => { onLogout && onLogout(); }} className="px-4 py-2 bg-red-600 text-white rounded">Logout</button>
+            </div>
           </div>
         ) : habits.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm p-12 text-center">
@@ -652,10 +708,10 @@ function getMonthSpans(weeks, year) {
               <table className="w-full text-sm">
                 <thead className="bg-green-100 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-700 min-w-[180px] text-xs">HABITS</th>
-                    <th className="px-2 py-2 text-center font-semibold text-gray-700 w-12 text-xs">GOAL</th>
+                    <th className="px-2 py-1 sm:px-3 sm:py-2 text-left font-semibold text-gray-700 min-w-[140px] text-xs">HABITS</th>
+                    <th className="px-1 py-1 sm:px-2 sm:py-2 text-center font-semibold text-gray-700 w-12 text-xs">GOAL</th>
                     {dates.map((date, idx) => (
-                      <th key={idx} className="px-1 py-2 text-center font-semibold text-gray-700 min-w-[50px]">
+                      <th key={idx} className="px-1 py-1 sm:px-1 sm:py-2 text-center font-semibold text-gray-700 min-w-[44px]">
                         <button
                           onClick={() => openNoteModal(date)}
                           className="hover:bg-green-200 rounded px-1 py-0.5 transition-colors w-full"
@@ -684,38 +740,47 @@ function getMonthSpans(weeks, year) {
                         const progress = calculateProgress(habit, dates);
                         return (
                           <tr key={habit._id} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-3 py-3">
-                              <div className="font-medium text-gray-800">{habit.name}</div>
+                            <td className="px-2 py-2 sm:px-3 sm:py-3">
+                              <div className="font-medium text-sm sm:text-base text-gray-800">{habit.name}</div>
                             </td>
-                            <td className="px-2 py-3 text-center text-gray-600">{habit.goal}</td>
+                            <td className="px-1 py-2 sm:px-2 sm:py-3 text-center text-gray-600">{habit.goal}</td>
                             {dates.map((date, idx) => {
                               const dateStr = formatDate(date);
                               const isCompleted = habit.completedDays && habit.completedDays[dateStr];
                               const isToday = date.toDateString() === new Date().toDateString();
                               
                               return (
-                                <td key={idx} className="px-1 py-3 text-center">
+                                <td key={idx} className="px-1 py-1 sm:py-3 text-center">
                                   <button
                                     onClick={() => toggleDay(habit._id, date)}
-                                    className={`w-8 h-8 rounded-lg transition-all ${
-                                      isCompleted
-                                        ? 'bg-green-600 hover:bg-green-700'
-                                        : 'bg-gray-100 hover:bg-gray-200'
-                                    } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
+                                    aria-pressed={isCompleted}
+                                    className={`flex items-center justify-center transition-all transform ${isToday ? 'ring-2 ring-blue-500' : ''}`}
                                     title={dateStr}
                                   >
-                                    {isCompleted && (
-                                      <span className="text-white font-bold">✓</span>
-                                    )}
+                                    {/* Outer bubble */}
+                                    <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors duration-150 ${
+                                      isCompleted
+                                        ? 'bg-gradient-to-br from-green-400 to-green-600 shadow-md'
+                                        : 'bg-white border border-gray-200 hover:bg-gray-50'
+                                    }`}>
+                                      {/* Checkmark that appears when completed (nicer bubble) */}
+                                      <svg
+                                        viewBox="0 0 24 24"
+                                        className={`w-3 h-3 text-white transition-all duration-150 transform ${isCompleted ? 'opacity-100 scale-100' : 'opacity-0 scale-75'}`}
+                                        aria-hidden
+                                      >
+                                        <path fill="currentColor" d="M9.2 16.2L4.8 11.8a1 1 0 10-1.4 1.4l5 5a1 1 0 001.4 0l11-11a1 1 0 10-1.4-1.4L9.2 16.2z" />
+                                      </svg>
+                                    </div>
                                   </button>
                                 </td>
                               );
                             })}
-                            <td className="px-2 py-3">
+                            <td className="px-2 py-2 sm:py-3">
                               <div className="flex items-center gap-2">
-                                <div className="flex-1 bg-gray-200 rounded-full h-2 min-w-[60px]">
+                                <div className="flex-1 bg-gray-200 rounded-full h-1 sm:h-2 min-w-[60px]">
                                   <div 
-                                    className="bg-green-600 h-2 rounded-full transition-all" 
+                                    className="bg-green-600 h-1 sm:h-2 rounded-full transition-all" 
                                     style={{ width: `${progress.percentage}%` }}
                                   />
                                 </div>
@@ -724,7 +789,7 @@ function getMonthSpans(weeks, year) {
                                 </span>
                               </div>
                             </td>
-                            <td className="px-2 py-3 text-center">
+                            <td className="px-2 py-2 sm:py-3 text-center">
                               <button
                                 onClick={() => deleteHabit(habit._id)}
                                 className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
