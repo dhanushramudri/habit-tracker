@@ -39,7 +39,7 @@ const HabitTracker2026 = ({ user, onLogout }) => {
   const [showAddCategoryInput, setShowAddCategoryInput] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState({});
   // Frontend will use backend API routes at /api (no client-side DB creds)
-  const backendBase = 'http://localhost:4000/api';
+  const backendBase = 'https://habit-tracker-backend-ten.vercel.app/api';
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentStreak, setCurrentStreak] = useState(0);
