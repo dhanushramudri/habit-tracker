@@ -504,15 +504,6 @@ function getMonthSpans(weeks, year) {
 
           {showAddHabit ? (
             <div className="space-y-2">
-              <input
-                type="text"
-                value={newHabitName}
-                onChange={(e) => setNewHabitName(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addHabit()}
-                placeholder="Habit name..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                autoFocus
-              />
               <select
                 value={newHabitCategory}
                 onChange={(e) => setNewHabitCategory(e.target.value)}
@@ -522,6 +513,15 @@ function getMonthSpans(weeks, year) {
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+                <input
+                type="text"
+                value={newHabitName}
+                onChange={(e) => setNewHabitName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addHabit()}
+                placeholder="Habit name..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                autoFocus
+              />
               <div className="flex gap-2">
                 <button
                   onClick={addHabit}
