@@ -4,11 +4,16 @@ import { Calendar, Plus, Trash2, Settings, ChevronLeft, ChevronRight } from 'luc
 const HabitTracker2026 = () => {
   const [habits, setHabits] = useState([]);
   const [newHabitName, setNewHabitName] = useState('');
+  const [newHabitCategory, setNewHabitCategory] = useState('Uncategorized');
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [viewMode, setViewMode] = useState('week'); // 'week', 'month', 'year'
   const [currentWeek, setCurrentWeek] = useState(0); // Week number in 2026
   const [currentMonth, setCurrentMonth] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [dailyNotes, setDailyNotes] = useState({});
+  const [currentNote, setCurrentNote] = useState('');
   const [mongoConfig, setMongoConfig] = useState({
     apiKey: '',
     database: 'habitTracker',
@@ -16,6 +21,7 @@ const HabitTracker2026 = () => {
   });
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState(['Health', 'Study', 'Work', 'Personal', 'Fitness', 'Uncategorized']);
 
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -146,6 +152,7 @@ const HabitTracker2026 = () => {
     const newHabit = {
       year: 2026,
       name: newHabitName,
+      category: newHabitCategory,
       goal: 30,
       completedDays: {},
       createdAt: new Date().toISOString()
@@ -162,6 +169,7 @@ const HabitTracker2026 = () => {
     
     setHabits([...habits, newHabit]);
     setNewHabitName('');
+    setNewHabitCategory('Uncategorized');
     setShowAddHabit(false);
   };
 
@@ -253,6 +261,33 @@ const HabitTracker2026 = () => {
   };
 
   const dates = getDatesToShow();
+
+  const openNoteModal = (date) => {
+    setSelectedDate(date);
+    const dateStr = formatDate(date);
+    setCurrentNote(dailyNotes[dateStr] || '');
+    setShowNoteModal(true);
+  };
+
+  const saveNote = () => {
+    if (selectedDate) {
+      const dateStr = formatDate(selectedDate);
+      setDailyNotes({
+        ...dailyNotes,
+        [dateStr]: currentNote
+      });
+      setShowNoteModal(false);
+      setSelectedDate(null);
+      setCurrentNote('');
+    }
+  };
+
+  const groupedHabits = habits.reduce((acc, habit) => {
+    const category = habit.category || 'Uncategorized';
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(habit);
+    return acc;
+  }, {});
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -354,38 +389,50 @@ const HabitTracker2026 = () => {
 
           {/* Add Habit */}
           {showAddHabit ? (
-            <div className="flex gap-2">
+            <div className="space-y-2">
               <input
                 type="text"
                 value={newHabitName}
                 onChange={(e) => setNewHabitName(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && addHabit()}
                 placeholder="Habit name..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
                 autoFocus
               />
-              <button
-                onClick={addHabit}
-                className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
+              <select
+                value={newHabitCategory}
+                onChange={(e) => setNewHabitCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
               >
-                Add
-              </button>
-              <button
-                onClick={() => {
-                  setShowAddHabit(false);
-                  setNewHabitName('');
-                }}
-                className="bg-gray-200 text-gray-600 px-6 py-2 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-              >
-                Cancel
-              </button>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <button
+                  onClick={addHabit}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAddHabit(false);
+                    setNewHabitName('');
+                    setNewHabitCategory('Uncategorized');
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : (
             <button
               onClick={() => setShowAddHabit(true)}
-              className="w-full bg-green-600 text-white px-4 py-3 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 font-medium"
+              className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-4 h-4" />
               Add New Habit
             </button>
           )}
@@ -404,70 +451,125 @@ const HabitTracker2026 = () => {
             <p className="text-gray-500">Click "Add New Habit" to start tracking</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-green-100 sticky top-0">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700 min-w-[200px]">HABITS</th>
-                  <th className="px-4 py-3 text-center font-semibold text-gray-700 w-20">GOAL</th>
-                  {dates.map((date, idx) => (
-                    <th key={idx} className="px-2 py-3 text-center font-semibold text-gray-700 min-w-[60px]">
-                      <div className="text-xs">{daysOfWeek[date.getDay()]}</div>
-                      <div className="text-sm">{date.getDate()}</div>
-                    </th>
-                  ))}
-                  <th className="px-4 py-3 text-center font-semibold text-gray-700 w-24">Progress</th>
-                  <th className="px-4 py-3 w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {habits.map((habit, habitIdx) => {
-                  const progress = calculateProgress(habit, dates);
-                  
-                  return (
-                    <tr key={habit._id} className={habitIdx % 2 === 0 ? 'bg-green-50' : 'bg-white'}>
-                      <td className="px-4 py-3 font-medium text-gray-800">{habit.name}</td>
-                      <td className="px-4 py-3 text-center text-gray-600">{habit.goal}</td>
-                      {dates.map((date, idx) => {
-                        const dateStr = formatDate(date);
-                        const isCompleted = habit.completedDays && habit.completedDays[dateStr];
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-green-100 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-700 min-w-[180px] text-xs">HABITS</th>
+                    <th className="px-2 py-2 text-center font-semibold text-gray-700 w-12 text-xs">GOAL</th>
+                    {dates.map((date, idx) => (
+                      <th key={idx} className="px-1 py-2 text-center font-semibold text-gray-700 min-w-[50px]">
+                        <button
+                          onClick={() => openNoteModal(date)}
+                          className="hover:bg-green-200 rounded px-1 py-0.5 transition-colors w-full"
+                        >
+                          <div className="text-xs">{daysOfWeek[date.getDay()]}</div>
+                          <div className="text-xs font-bold">{date.getDate()}</div>
+                          {dailyNotes[formatDate(date)] && (
+                            <div className="text-xs text-green-600">📝</div>
+                          )}
+                        </button>
+                      </th>
+                    ))}
+                    <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20 text-xs">Progress</th>
+                    <th className="px-2 py-2 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(groupedHabits).map(([category, categoryHabits]) => (
+                    <React.Fragment key={category}>
+                      <tr className="bg-gray-100">
+                        <td colSpan={dates.length + 4} className="px-3 py-1.5 font-bold text-gray-700 text-xs uppercase">
+                          {category}
+                        </td>
+                      </tr>
+                      {categoryHabits.map((habit, habitIdx) => {
+                        const progress = calculateProgress(habit, dates);
                         
                         return (
-                          <td key={idx} className="px-2 py-3">
-                            <button
-                              onClick={() => toggleDay(habit._id, date)}
-                              className={`w-10 h-10 rounded border-2 transition-all ${
-                                isCompleted
-                                  ? 'bg-green-500 border-green-600'
-                                  : 'bg-white border-gray-300 hover:border-green-400'
-                              }`}
-                            >
-                              {isCompleted && (
-                                <svg className="w-6 h-6 mx-auto text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </button>
-                          </td>
+                          <tr key={habit._id} className="border-b border-gray-100 hover:bg-green-50">
+                            <td className="px-3 py-2 font-medium text-gray-800 text-xs">{habit.name}</td>
+                            <td className="px-2 py-2 text-center text-gray-600 text-xs">{habit.goal}</td>
+                            {dates.map((date, idx) => {
+                              const dateStr = formatDate(date);
+                              const isCompleted = habit.completedDays && habit.completedDays[dateStr];
+                              
+                              return (
+                                <td key={idx} className="px-1 py-2">
+                                  <button
+                                    onClick={() => toggleDay(habit._id, date)}
+                                    className={`w-8 h-8 rounded border transition-all ${
+                                      isCompleted
+                                        ? 'bg-green-500 border-green-600'
+                                        : 'bg-white border-gray-300 hover:border-green-400'
+                                    }`}
+                                  >
+                                    {isCompleted && (
+                                      <svg className="w-5 h-5 mx-auto text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-2 text-center">
+                              <div className="text-xs font-semibold text-green-600">{progress.percentage}%</div>
+                              <div className="text-xs text-gray-500">{progress.completed}/{progress.total}</div>
+                            </td>
+                            <td className="px-2 py-2">
+                              <button
+                                onClick={() => deleteHabit(habit._id)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
                         );
                       })}
-                      <td className="px-4 py-3 text-center">
-                        <div className="text-sm font-semibold text-green-600">{progress.percentage}%</div>
-                        <div className="text-xs text-gray-500">{progress.completed}/{progress.total}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => deleteHabit(habit._id)}
-                          className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Note Modal */}
+        {showNoteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-gray-800 mb-4">
+                Daily Note - {selectedDate?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </h3>
+              <textarea
+                value={currentNote}
+                onChange={(e) => setCurrentNote(e.target.value)}
+                placeholder="Write your notes for this day..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none h-32 text-sm"
+                autoFocus
+              />
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={saveNote}
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  Save Note
+                </button>
+                <button
+                  onClick={() => {
+                    setShowNoteModal(false);
+                    setSelectedDate(null);
+                    setCurrentNote('');
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
